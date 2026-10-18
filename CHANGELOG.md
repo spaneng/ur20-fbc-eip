@@ -7,6 +7,13 @@ All notable changes to this workspace are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-18
+
+First release. EtherNet/IP encapsulation, CIP explicit messaging (UCMM and class 3),
+Identity Object, assembly reads and writes, module codecs, auto-detection of modules
+(Gateway 0x64/1/111), station verification (Slot class 0x65), diagnosis, class 1 implicit
+I/O and the `ur20eip` CLI.
+
 ### Added
 
 - `CONTRIBUTING.md`, this changelog, and GitHub Actions CI (fmt, clippy, test, doc on stable
@@ -93,8 +100,5 @@ All notable changes to this workspace are recorded here. The format follows
 - The workspace builds on its declared MSRV (Rust 1.85) again: removed `let` chains, which
   need 1.88.
 
-## 0.1.0 (unreleased)
-
-Phases 1 and 2: EtherNet/IP encapsulation, CIP explicit messaging (UCMM and class 3),
-Identity Object, assembly reads and writes, module codecs, auto-detection of modules
-(Gateway 0x64/1/111), station verification (Slot class 0x65) and the `ur20eip` CLI.
+[Unreleased]: https://github.com/quartzsystems/ur20-fbc-eip/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/quartzsystems/ur20-fbc-eip/releases/tag/v0.1.0

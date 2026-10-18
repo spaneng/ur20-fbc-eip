@@ -11,24 +11,6 @@ bench bring-up.
 > [docs/DESIGN.md §7](docs/DESIGN.md)). Class 1 implicit I/O (`ImplicitConnection`) is
 > implemented in the CIP crate and tested against a mock adapter, not yet on hardware.
 
-## FBC-EIP vs. FBC-MOD-TCP
-
-u-remote stations have the same I/O modules and the same per-module process data on every
-coupler. Only the fieldbus between your PC/PLC and the coupler differs:
-
-| | UR20-FBC-MOD-TCP | **UR20-FBC-EIP** |
-|---|---|---|
-| Protocol | Modbus TCP, port 502 | EtherNet/IP (CIP), TCP 44818 / UDP 2222 |
-| Process data | holding/input registers | Assembly Object (class 0x04) instances |
-| Inputs | read input registers | Get_Attribute_Single 0x04/111/3 |
-| Outputs | write holding registers | Set_Attribute_Single 0x04/112/3, after enabling explicit write access |
-| Cyclic I/O | polling | class 1 connection with an RPI (planned) |
-| Rust crate | [`ur20`](https://crates.io/crates/ur20) (slowtec) | **this workspace** |
-
-If your coupler says MOD-TCP on the front, use slowtec's `ur20`. This workspace mirrors its
-module model (a `Module` trait, sizes per module, process image carved per slot) but is an
-independent implementation.
-
 ## Layering
 
 ```
@@ -51,6 +33,16 @@ ur20-fbc-eip-cip                    crates/cip
 
 The CIP crate knows nothing about u-remote and works with any EtherNet/IP adapter. It does
 not use `rseip`; see [docs/DESIGN.md §2](docs/DESIGN.md) for why.
+
+## Installation
+
+```sh
+cargo add ur20-fbc-eip            # the u-remote driver
+cargo add ur20-fbc-eip-cip        # only if you need raw EtherNet/IP / CIP
+cargo install ur20-fbc-eip-cli    # the `ur20eip` CLI
+```
+
+All three crates share one version; see [CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start (library)
 
@@ -90,7 +82,7 @@ async fn main() -> ur20_fbc_eip::Result<()> {
 ## Quick start (CLI)
 
 ```sh
-cargo install --path crates/cli
+cargo install ur20-fbc-eip-cli    # or, from a checkout: cargo install --path crates/cli
 export UR20_EIP_ADDR=192.168.1.10
 # optional; detected from the coupler if unset:
 # export UR20_EIP_MODULES=UR20-4DI-P,UR20-4DO-P,UR20-4AI-UI-16

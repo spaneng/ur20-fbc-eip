@@ -167,6 +167,26 @@ Run one crate or one test with
 `UR20_EIP_LOG=trace` with the CLI to see every request and reply in hex. For bring-up of new
 objects, `ur20eip raw scan <class> <instance> <first> <last>` lists the attributes that exist.
 
+## Releasing
+
+The three crates share one version, `workspace.package.version` in the root `Cargo.toml`,
+and follow [Semantic Versioning](https://semver.org/). While the version is 0.x, a breaking
+API change bumps the minor version (0.1 → 0.2) and anything else bumps the patch version.
+
+1. Bump `version` in `[workspace.package]` and the two `version = "…"` entries in
+   `[workspace.dependencies]`, then run `cargo check` so `Cargo.lock` follows.
+2. In `CHANGELOG.md`, rename `[Unreleased]` to `[x.y.z] - YYYY-MM-DD`, add a new empty
+   `[Unreleased]` above it, and update the compare links at the bottom.
+3. Commit (`Release x.y.z`) and push to `main`.
+4. `cargo publish --workspace --dry-run`, then `cargo publish --workspace`. This publishes
+   the crates in dependency order: `ur20-fbc-eip-cip`, then `ur20-fbc-eip`, then
+   `ur20-fbc-eip-cli`. It needs `cargo login` with a crates.io API token.
+5. Tag and push: `git tag vx.y.z && git push origin vx.y.z`, and optionally
+   `gh release create vx.y.z --generate-notes`.
+
+A published version cannot be overwritten. If one is broken, `cargo yank` it and release a
+new patch version.
+
 ## Licence
 
 By contributing you agree that your work is licensed under the [MIT license](LICENSE).
