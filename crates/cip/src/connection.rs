@@ -250,7 +250,7 @@ impl ConnectionParams {
 
     /// Build the Forward_Open request.
     pub fn forward_open_request(&self) -> Result<MessageRequest> {
-        let path = self.path.encode();
+        let path = self.path.try_encode()?; // an oversized data segment is an error
         let mut d = Vec::with_capacity(36 + path.len());
         d.put_u8(self.priority_time_tick);
         d.put_u8(self.timeout_ticks);
@@ -276,8 +276,11 @@ impl ConnectionParams {
     }
 
     /// Build the matching Forward_Close request.
+    ///
+    /// The connection path is the Forward_Open's without its data segments:
+    /// configuration data applies to the open, not the close.
     pub fn forward_close_request(&self) -> Result<MessageRequest> {
-        let path = self.path.encode();
+        let path = self.path.without_data().try_encode()?;
         let mut d = Vec::with_capacity(12 + path.len());
         d.put_u8(self.priority_time_tick);
         d.put_u8(self.timeout_ticks);
@@ -456,6 +459,43 @@ mod tests {
         );
         q.timeout_multiplier = 200; // clamped, no overflow
         assert!(q.timeout_for(Duration::from_secs(1)) >= Duration::from_secs(512));
+    }
+
+    // A POINT I/O style exclusive-owner connection with a configuration data
+    // segment straight after the configuration instance (the eeip "placement A").
+    #[test]
+    fn config_data_segment_in_forward_open_not_in_forward_close() {
+        let mut p =
+            ConnectionParams::implicit_class1(102, 100, 101, 1, 16, Duration::from_millis(100));
+        p.path = EPath::new()
+            .with(Segment::Class(0x04))
+            .with(Segment::Instance(102))
+            .with(Segment::Data(vec![0, 0, 0, 0, 4, 0, 0, 0, 0, 0]))
+            .with(Segment::ConnectionPoint(100))
+            .with(Segment::ConnectionPoint(101));
+        let open = p
+            .forward_open_request()
+            .and_then(|r| r.encode())
+            .expect("encodes");
+        let path_at = open.len() - 20;
+        assert_eq!(open[path_at - 1], 10, "path size in words");
+        assert_eq!(
+            open[path_at..],
+            [
+                0x20, 0x04, 0x24, 0x66, 0x80, 0x05, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0x2c, 0x64, 0x2c,
+                0x65
+            ]
+        );
+        let close = p
+            .forward_close_request()
+            .and_then(|r| r.encode())
+            .expect("encodes");
+        assert_eq!(
+            close[close.len() - 10..],
+            [4, 0, 0x20, 0x04, 0x24, 0x66, 0x2c, 0x64, 0x2c, 0x65]
+        );
+        p.path = p.path.with(Segment::Data(vec![0; 600]));
+        assert!(p.forward_open_request().is_err());
     }
 
     #[test]

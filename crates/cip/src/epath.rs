@@ -7,9 +7,12 @@
 use std::fmt;
 
 use crate::codec::WriteLe;
+use crate::error::{Error, Result};
 
-/// One logical segment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// One path segment: logical, port, or simple data.
+///
+/// Not `Copy`, because [`Segment::Data`] owns its bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Segment {
     /// Class ID.
     Class(u16),
@@ -26,10 +29,15 @@ pub enum Segment {
         /// Link address (slot).
         link: u8,
     },
+    /// Simple Data Segment (CIP Vol. 1, C-1.4.3.1): `0x80`, the length in
+    /// 16-bit words, then the data padded with a zero byte to a whole word. In a
+    /// Forward_Open connection path it carries the configuration assembly's data.
+    /// At most 510 bytes (255 words).
+    Data(Vec<u8>),
 }
 
 impl Segment {
-    fn encode_into(&self, out: &mut Vec<u8>) {
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<()> {
         // logical type in bits 2..4, format in bits 0..1: 0 = 8 bit, 1 = 16 bit, 2 = 32 bit
         let logical = |out: &mut Vec<u8>, ty: u8, v: u32| {
             if let Ok(b) = u8::try_from(v) {
@@ -54,7 +62,26 @@ impl Segment {
                 out.put_u8(port & 0x0F);
                 out.put_u8(link);
             }
+            Self::Data(ref data) => {
+                let words = u8::try_from(data.len().div_ceil(2)).map_err(|_| Error::TooLarge {
+                    context: "data segment",
+                    len: data.len(),
+                    max: 2 * usize::from(u8::MAX),
+                })?;
+                out.put_u8(0x80);
+                out.put_u8(words);
+                out.extend_from_slice(data);
+                if data.len() % 2 == 1 {
+                    out.put_u8(0);
+                }
+            }
         }
+        Ok(())
+    }
+
+    /// True for a [`Segment::Data`].
+    pub fn is_data(&self) -> bool {
+        matches!(self, Self::Data(_))
     }
 }
 
@@ -75,12 +102,26 @@ impl EPath {
     }
 
     /// Encoded bytes (always an even number: padded format).
+    ///
+    /// A [`Segment::Data`] longer than 510 bytes cannot be encoded and is
+    /// emitted empty here; use [`EPath::try_encode`] to get the error instead.
     pub fn encode(&self) -> Vec<u8> {
+        self.try_encode().unwrap_or_default()
+    }
+
+    /// Encoded bytes, or [`Error::TooLarge`] for an oversized data segment.
+    pub fn try_encode(&self) -> Result<Vec<u8>> {
         let mut out = Vec::with_capacity(self.0.len() * 4);
         for s in &self.0 {
-            s.encode_into(&mut out);
+            s.encode_into(&mut out)?;
         }
-        out
+        Ok(out)
+    }
+
+    /// The same path without its data segments, e.g. for the
+    /// Forward_Close matching a Forward_Open that carried configuration data.
+    pub fn without_data(&self) -> Self {
+        Self(self.0.iter().filter(|s| !s.is_data()).cloned().collect())
     }
 
     /// Encoded length in 16-bit words.
@@ -103,6 +144,7 @@ impl fmt::Display for EPath {
                 Segment::Attribute(a) => write!(f, "attr {a}")?,
                 Segment::ConnectionPoint(p) => write!(f, "conn-pt {p}")?,
                 Segment::Port { port, link } => write!(f, "port {port} link {link}")?,
+                Segment::Data(d) => write!(f, "data {}", crate::codec::hex(d))?,
             }
         }
         if first {
@@ -228,6 +270,38 @@ mod tests {
             p.encode(),
             [0x01, 0x00, 0x20, 0x04, 0x24, 0x66, 0x2c, 0x70, 0x2c, 0x6f]
         );
+    }
+    #[test]
+    fn data_segment_is_word_length_prefixed_and_padded() {
+        let p = EPath::new()
+            .with(Segment::Class(0x04))
+            .with(Segment::Instance(102))
+            .with(Segment::Data(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]))
+            .with(Segment::ConnectionPoint(100))
+            .with(Segment::ConnectionPoint(101));
+        assert_eq!(
+            p.encode(),
+            [
+                0x20, 0x04, 0x24, 0x66, 0x80, 0x05, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0x2c, 0x64,
+                0x2c, 0x65
+            ]
+        );
+        assert_eq!(p.word_len(), 10);
+        let odd = EPath::new().with(Segment::Data(vec![0xAA, 0xBB, 0xCC]));
+        assert_eq!(odd.encode(), [0x80, 0x02, 0xAA, 0xBB, 0xCC, 0x00]);
+        assert_eq!(
+            p.without_data().encode(),
+            [0x20, 0x04, 0x24, 0x66, 0x2c, 0x64, 0x2c, 0x65]
+        );
+        let huge = EPath::new().with(Segment::Data(vec![0; 511]));
+        assert!(huge.try_encode().is_err());
+        assert!(
+            EPath::new()
+                .with(Segment::Data(vec![0; 510]))
+                .try_encode()
+                .is_ok()
+        );
+        assert_eq!(odd.to_string(), "data aa bb cc");
     }
 
     #[test]
